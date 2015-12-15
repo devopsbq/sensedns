@@ -14,7 +14,7 @@ import (
 const (
 	storePath     = "sensedns/network"
 	inventoryPath = "sensedns/inventory"
-	version       = "v0.1.0"
+	version       = "v0.2.0-SNAPSHOT"
 )
 
 func getOrElse(env, def string) string {
