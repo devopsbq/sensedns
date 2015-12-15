@@ -14,6 +14,7 @@ import (
 const (
 	storePath     = "sensedns/network"
 	inventoryPath = "sensedns/inventory"
+	version       = "v0.1.0"
 )
 
 func getOrElse(env, def string) string {
@@ -33,6 +34,7 @@ func getNodeID(client *docker.Client) string {
 }
 
 func main() {
+	log.Printf("Starting SenseDNS %s\n", version)
 	dnsServer := &Server{
 		port:     53,
 		rTimeout: 5 * time.Second,
