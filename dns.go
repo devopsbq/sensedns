@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"strconv"
 	"sync"
 	"time"
 
@@ -59,7 +58,7 @@ func (zs *ZoneStore) match(q string, t uint16) (*Zone, string) {
 
 type Server struct {
 	host      string
-	port      int
+	port      string
 	recurseTo string
 	rTimeout  time.Duration
 	wTimeout  time.Duration
@@ -67,7 +66,7 @@ type Server struct {
 }
 
 func (s *Server) Addr() string {
-	return s.host + ":" + strconv.Itoa(s.port)
+	return s.host + ":" + s.port
 }
 
 func (s *Server) Run() {
@@ -95,6 +94,6 @@ func (s *Server) start(ds *dns.Server) {
 	log.Printf("Start %s listener on %s\n", ds.Net, s.Addr())
 	err := ds.ListenAndServe()
 	if err != nil {
-		log.Fatalf("Start %s listener on %s failed:%s", ds.Net, s.Addr(), err.Error())
+		log.Fatalf("Start %s listener on %s failed: %s", ds.Net, s.Addr(), err.Error())
 	}
 }

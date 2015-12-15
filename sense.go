@@ -112,11 +112,11 @@ func (s *SenseDNS) addNetwork(net string) {
 func (s *SenseDNS) boot() {
 	containers, err := s.dockerClient.ListContainers(docker.ListContainersOptions{All: false})
 	if err != nil {
-		log.Fatalln("Error loading containers at boot.")
+		log.Fatalf("Error loading containers at boot; %v\n", err)
 	}
 	pairs, _, err := s.consulKV.List(path.Join(inventoryPath, s.NodeID), nil)
 	if err != nil {
-		log.Fatalln("Error loading old info at boot.")
+		log.Fatalf("Error loading old info at boot: %v\n", err)
 	}
 	for _, value := range pairs {
 		_, id := path.Split(value.Key)
