@@ -36,7 +36,6 @@ func getNodeID(client *docker.Client) string {
 func main() {
 	log.Printf("Starting SenseDNS %s\n", version)
 	dnsServer := &Server{
-		port:     53,
 		rTimeout: 5 * time.Second,
 		wTimeout: 5 * time.Second,
 		zones: &ZoneStore{
@@ -48,6 +47,7 @@ func main() {
 	flag.StringVar(&timeout, "t", getOrElse("CONSUL_TIMEOUT", "5m"), "The URL of zones in JSON format.")
 	flag.StringVar(&networkTLD, "n", getOrElse("NETWORK_TLD", "sensedns"), "The networks TLD to use.")
 	flag.StringVar(&dnsServer.host, "l", getOrElse("DNS_LISTEN_ADDRESS", "0.0.0.0"), "The IP of the DNS server.")
+	flag.StringVar(&dnsServer.port, "p", getOrElse("DNS_LISTEN_PORT", "53"), "The port of the DNS server.")
 	flag.StringVar(&dnsServer.recurseTo, "r", getOrElse("REDIRECT_DNS", "8.8.8.8:53"), "DNS to ask if request fails.")
 	flag.Parse()
 	consulTimeout, err = time.ParseDuration(timeout)
