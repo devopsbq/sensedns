@@ -13,11 +13,11 @@ func (s *SenseDNS) fillWithData(pairs api.KVPairs, network string) {
 	zs := s.dnsServer.zones
 	zs.Lock()
 	defer zs.Unlock()
-	key := dns.Fqdn(network + ".sx.")
+	key := dns.Fqdn(fmt.Sprintf("%s.%s.", network, networkTLD))
 	zs.store[key] = make(map[dns.RR_Header][]dns.RR)
 	for _, value := range pairs {
 		path := strings.Split(value.Key, "/")
-		hostname := fmt.Sprintf("%s.%s.sx", path[3], network)
+		hostname := fmt.Sprintf("%s.%s.%s", path[3], network, networkTLD)
 		ip := string(value.Value)
 		rr := new(dns.A)
 		rr.A = net.ParseIP(ip)

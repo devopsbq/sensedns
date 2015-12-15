@@ -1,3 +1,9 @@
+# SenseDNS
+
+Multihost DNS for docker networks
+
+
 // TODO
 
-- cleanup consul (at boot?) (when exiting?)
+- Print network when event occurs
+- Log level and use Logrus

@@ -14,6 +14,7 @@ var (
 	err           error
 	consulURL     string
 	consulTimeout time.Duration
+	networkTLD    string
 )
 
 type ZoneStore struct {
