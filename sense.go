@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/fsouza/go-dockerclient"
@@ -20,53 +20,74 @@ type SenseDNS struct {
 
 func (s *SenseDNS) addContainer(event *docker.APIEvents) {
 	container, _ := s.dockerClient.InspectContainer(event.ID)
-	log.Printf("Container %s... (%s): %s\n", event.ID[0:8], container.Config.Hostname, event.Status)
-	for k, v := range container.NetworkSettings.Networks {
-		key := path.Join(storePath, k, container.Config.Hostname, container.ID)
+	containerID, hostname := event.ID, container.Config.Hostname
+	log.Printf("Container %s... (%s): %s\n", containerID[0:8], hostname, event.Status)
+	var keys []string
+	for net, v := range container.NetworkSettings.Networks {
+		s.newHostWithNetwork(net)
+		key := path.Join(storePath, net, hostname, containerID)
 		pair := &api.KVPair{Key: key, Value: []byte(v.IPAddress)}
 		if _, err := s.consulKV.Put(pair, nil); err != nil {
 			log.Printf("Error operating with key: %s\n", err)
 			continue // FIXME: do something about this
 		}
-		inventoryKey := path.Join(inventoryPath, s.NodeID, container.ID)
-		inventoryPair := &api.KVPair{Key: inventoryKey, Value: []byte(key)}
-		if _, err := s.consulKV.Put(inventoryPair, nil); err != nil {
-			log.Printf("Error operating with key: %s\n", err)
-			continue // FIXME: do something about this
-		}
-		s.newHostWithNetwork(k)
+		keys = append(keys, key)
+	}
+	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
+	keyBytes, _ := json.Marshal(keys)
+	inventoryPair := &api.KVPair{Key: inventoryKey, Value: keyBytes}
+	if _, err := s.consulKV.Put(inventoryPair, nil); err != nil {
+		log.Printf("Error operating with key: %s\n", err)
 	}
 }
 
 func (s *SenseDNS) deleteContainer(event *docker.APIEvents) {
-	container, _ := s.dockerClient.InspectContainer(event.ID)
-	log.Printf("Container %s... (%s): %s\n", event.ID[0:8], container.Config.Hostname, event.Status)
-	for k := range container.NetworkSettings.Networks {
-		key := path.Join(storePath, k, container.Config.Hostname, container.ID)
-		inventoryKey := path.Join(inventoryPath, s.NodeID, container.ID)
-		if err := s.removeFromConsul(key, inventoryKey); err != nil {
-			log.Printf("Error operating with key: %s\n", err)
-			continue // FIXME: do something about this
-		}
-		s.removedHostWithNetwork(k)
+	containerID := event.ID
+	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
+	hostname, networks, err := s.removeFromConsul(inventoryKey, []string{})
+	if err != nil {
+		log.Printf("Error operating with key: %s\n", err)
+	}
+	log.Printf("Container %s... (%s): %s\n", containerID[0:8], hostname, event.Status)
+	for _, net := range networks {
+		s.removedHostWithNetwork(net)
 	}
 }
 
-func (s *SenseDNS) removeFromConsul(key, inventoryKey string) error {
-	if _, err := s.consulKV.Delete(key, nil); err != nil {
-		return err
+func (s *SenseDNS) removeFromConsul(inventoryKey string, networkKeys []string) (hostname string, nets []string, err error) {
+	var pair *api.KVPair
+	if len(networkKeys) == 0 {
+		pair, _, err = s.consulKV.Get(inventoryKey, nil)
+		if err != nil {
+			return
+		}
+		json.Unmarshal(pair.Value, &networkKeys)
 	}
-	if _, err := s.consulKV.Delete(inventoryKey, nil); err != nil {
-		return err
+	if _, err = s.consulKV.Delete(inventoryKey, nil); err != nil {
+		return
 	}
-	return nil
+	for _, networkKey := range networkKeys {
+		_, hostname = path.Split(path.Dir(networkKey))
+		_, net := path.Split(path.Dir(path.Dir(networkKey)))
+		nets = append(nets, net)
+		_, errr := s.consulKV.Delete(networkKey, nil)
+		if errr != nil {
+			err = errr
+		}
+	}
+	return
 }
 
 func (s *SenseDNS) newHostWithNetwork(net string) {
 	if _, ok := s.KnownNets[net]; !ok {
 		log.Printf("Network <%s>: added\n", net)
 		s.KnownNets[net] = 0
-		go s.addNetwork(net)
+		info, _ := s.dockerClient.NetworkInfo(net)
+		switch info.Driver {
+		case "host", "null", "bridge":
+		default:
+			go s.addNetwork(net)
+		}
 	}
 	s.KnownNets[net]++
 }
@@ -105,7 +126,7 @@ func (s *SenseDNS) addNetwork(net string) {
 			log.Printf("Network <%s>: stop watching\n", net)
 			return
 		}
-		index = meta.LastIndex + 1
+		index = meta.LastIndex
 	}
 }
 
@@ -127,12 +148,18 @@ func (s *SenseDNS) boot() {
 			}
 		}
 		if !found {
-			dirSplit := strings.Split(string(value.Value), "/")
-			log.Printf("Container %s... (%s): %s\n", id[0:8], dirSplit[3], "removed")
-			if err = s.removeFromConsul(string(value.Value), value.Key); err != nil {
+			var networkKeys, networks []string
+			json.Unmarshal(value.Value, &networkKeys)
+			for _, networkKey := range networkKeys {
+				_, net := path.Split(path.Dir(path.Dir(networkKey)))
+				networks = append(networks, net)
+			}
+			hostname, networks, err := s.removeFromConsul(value.Key, networks)
+			if err != nil {
 				log.Printf("Error operating with key: %s\n", err)
 				continue // FIXME: do something about this
 			}
+			log.Printf("Container %s... (%s): %s\n", id[0:8], hostname, "removed")
 		}
 	}
 	for _, c := range containers {
