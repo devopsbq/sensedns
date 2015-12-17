@@ -2,85 +2,97 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"path"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/hashicorp/consul/api"
 )
 
+const (
+	networkField   = "network"
+	countField     = "count"
+	hostnameField  = "hostname"
+	containerField = "container"
+	indexField     = "index"
+)
+
+type cache struct {
+	hosts map[string]string
+	tam   int
+}
+
+// SenseDNS is the proccess which manages containers
 type SenseDNS struct {
-	NodeID       string
-	KnownNets    map[string]int
-	dockerClient *docker.Client
-	consulKV     *api.KV
-	dnsServer    *Server
+	NodeID        string
+	KnownNets     map[string]int
+	HostCache     map[string]string
+	dockerClient  *docker.Client
+	consulKV      *api.KV
+	consulTimeout time.Duration
+	dnsServer     *Server
 }
 
 func (s *SenseDNS) addContainer(event *docker.APIEvents) {
 	container, _ := s.dockerClient.InspectContainer(event.ID)
 	containerID, hostname := event.ID, container.Config.Hostname
-	log.Printf("Container %s... (%s): %s\n", containerID[0:8], hostname, event.Status)
+	s.HostCache[containerID] = hostname
+	containerLogger := log.WithFields(logrus.Fields{containerField: containerID[0:8], hostnameField: hostname})
+	containerLogger.Info(event.Status)
 	var keys []string
 	for net, v := range container.NetworkSettings.Networks {
 		s.newHostWithNetwork(net)
 		key := path.Join(storePath, net, hostname, containerID)
 		pair := &api.KVPair{Key: key, Value: []byte(v.IPAddress)}
+		containerLogger.WithField(networkField, net).Debugf("Inserting network key: %s -> %s", key, v.IPAddress)
 		if _, err := s.consulKV.Put(pair, nil); err != nil {
-			log.Printf("Error operating with key: %s\n", err)
-			continue // FIXME: do something about this
+			containerLogger.WithField(networkField, net).Warnf("Error inserting network key on consul: %s", err)
+			continue
 		}
 		keys = append(keys, key)
 	}
 	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
 	keyBytes, _ := json.Marshal(keys)
 	inventoryPair := &api.KVPair{Key: inventoryKey, Value: keyBytes}
+	containerLogger.Debugf("Inserting inventory key: %s -> %s", inventoryKey, string(keyBytes))
 	if _, err := s.consulKV.Put(inventoryPair, nil); err != nil {
-		log.Printf("Error operating with key: %s\n", err)
+		containerLogger.Warnf("Error inserting inventory key on consul: %s", err)
 	}
 }
 
-func (s *SenseDNS) deleteContainer(event *docker.APIEvents) {
+func (s *SenseDNS) deleteContainer(event *docker.APIEvents, fromSocket bool) {
 	containerID := event.ID
+	containerLogger := log.WithFields(logrus.Fields{containerField: containerID[0:8], hostnameField: s.HostCache[containerID]})
+	containerLogger.Info(event.Status)
 	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
-	hostname, networks, err := s.removeFromConsul(inventoryKey, []string{})
+	pair, _, err := s.consulKV.Get(inventoryKey, nil)
 	if err != nil {
-		log.Printf("Error operating with key: %s\n", err)
-	}
-	log.Printf("Container %s... (%s): %s\n", containerID[0:8], hostname, event.Status)
-	for _, net := range networks {
-		s.removedHostWithNetwork(net)
-	}
-}
-
-func (s *SenseDNS) removeFromConsul(inventoryKey string, networkKeys []string) (hostname string, nets []string, err error) {
-	var pair *api.KVPair
-	if len(networkKeys) == 0 {
-		pair, _, err = s.consulKV.Get(inventoryKey, nil)
-		if err != nil {
-			return
-		}
-		json.Unmarshal(pair.Value, &networkKeys)
-	}
-	if _, err = s.consulKV.Delete(inventoryKey, nil); err != nil {
+		log.Warnf("Error deleting inventory key from consul: %s", err)
 		return
 	}
+	var networkKeys []string
+	json.Unmarshal(pair.Value, &networkKeys) // TODO: this "panicked" on some situation!!!
+	if _, err := s.consulKV.Delete(inventoryKey, nil); err != nil {
+		log.Warnf("Error deleting inventory key on consul: %s", err)
+	}
 	for _, networkKey := range networkKeys {
-		_, hostname = path.Split(path.Dir(networkKey))
-		_, net := path.Split(path.Dir(path.Dir(networkKey)))
-		nets = append(nets, net)
-		_, errr := s.consulKV.Delete(networkKey, nil)
-		if errr != nil {
-			err = errr
+		if _, err := s.consulKV.Delete(networkKey, nil); err != nil {
+			log.Warnf("Error deleting network key on consul: %s", err)
+			continue
+		}
+		if fromSocket {
+			net := path.Base(path.Dir(path.Dir(networkKey)))
+			s.removedHostWithNetwork(net)
 		}
 	}
-	return
 }
 
 func (s *SenseDNS) newHostWithNetwork(net string) {
+	networkLogger := log.WithField(networkField, net)
+	networkLogger.Debug("new host")
 	if _, ok := s.KnownNets[net]; !ok {
-		log.Printf("Network <%s>: added\n", net)
+		networkLogger.Info("first local host, added network")
 		s.KnownNets[net] = 0
 		info, _ := s.dockerClient.NetworkInfo(net)
 		switch info.Driver {
@@ -90,40 +102,43 @@ func (s *SenseDNS) newHostWithNetwork(net string) {
 		}
 	}
 	s.KnownNets[net]++
+	networkLogger.WithField(countField, s.KnownNets[net]).Debug("number of local hosts changed")
 }
 
 func (s *SenseDNS) removedHostWithNetwork(net string) {
-	s.KnownNets[net]--
-	if v := s.KnownNets[net]; v == 0 {
-		delete(s.KnownNets, net)
-		log.Printf("Network <%s>: forgot\n", net)
+	networkLogger := log.WithField(networkField, net)
+	networkLogger.Debug("removed host")
+	if _, ok := s.KnownNets[net]; ok {
+		s.KnownNets[net]--
+		networkLogger.WithField(countField, s.KnownNets[net]).Debug("number of local hosts changed")
+		if v := s.KnownNets[net]; v == 0 {
+			delete(s.KnownNets, net)
+			networkLogger.Info("no local hosts, forgot network")
+		}
 	}
 }
 
 func (s *SenseDNS) addNetwork(net string) {
-	log.Printf("Network <%s>: start watching\n", net)
-	requestDuration := consulTimeout
+	networkLogger := log.WithField(networkField, net)
+	networkLogger.Info("start watching for changes")
 	index := uint64(0)
 	for {
-		queryOptions := &api.QueryOptions{
-			AllowStale: true,
-			WaitIndex:  index,
-			WaitTime:   requestDuration,
-		}
+		queryOptions := &api.QueryOptions{AllowStale: true, WaitIndex: index}
+		networkLogger.WithField(indexField, index).Debug("blocking")
 		pairs, meta, err := s.consulKV.List(path.Join(storePath, net), queryOptions)
 		if err != nil {
-			log.Printf("Network <%s>: error while watching\n", net)
-			time.Sleep(time.Second)
+			networkLogger.Warn("error while watching: %s", err)
+			time.Sleep(2 * time.Second) // TODO: think about backoff
 			continue
 		}
-		if meta.RequestTime > requestDuration {
-			log.Printf("Network <%s>: step watching\n", net)
+		if meta.RequestTime > s.consulTimeout {
+			networkLogger.Debug("step watching, timeout reached")
 			continue
 		}
-		log.Printf("Network <%s>: updated\n", net)
+		networkLogger.Infof("changes detected, proceding to update")
 		s.fillWithData(pairs, net)
 		if _, ok := s.KnownNets[net]; !ok {
-			log.Printf("Network <%s>: stop watching\n", net)
+			networkLogger.Infof("no local hosts, stop watching")
 			return
 		}
 		index = meta.LastIndex
@@ -131,38 +146,30 @@ func (s *SenseDNS) addNetwork(net string) {
 }
 
 func (s *SenseDNS) boot() {
+	log.Debug("Loading existing containers")
 	containers, err := s.dockerClient.ListContainers(docker.ListContainersOptions{All: false})
 	if err != nil {
-		log.Fatalf("Error loading containers at boot; %v\n", err)
+		log.Fatalf("Error loading existing containers: %s", err)
 	}
+	set := make(map[string]docker.APIContainers)
+	for _, c := range containers {
+		set[c.ID] = c
+	}
+	log.Debug("Loading SenseDNS inventory")
 	pairs, _, err := s.consulKV.List(path.Join(inventoryPath, s.NodeID), nil)
 	if err != nil {
-		log.Fatalf("Error loading old info at boot: %v\n", err)
+		log.Fatalf("Error loading inventory information: %s", err)
 	}
 	for _, value := range pairs {
-		_, id := path.Split(value.Key)
-		found := false
-		for _, c := range containers {
-			if found = c.ID == id; found {
-				break
-			}
-		}
-		if !found {
-			var networkKeys, networks []string
-			json.Unmarshal(value.Value, &networkKeys)
-			for _, networkKey := range networkKeys {
-				_, net := path.Split(path.Dir(path.Dir(networkKey)))
-				networks = append(networks, net)
-			}
-			hostname, networks, err := s.removeFromConsul(value.Key, networks)
-			if err != nil {
-				log.Printf("Error operating with key: %s\n", err)
-				continue // FIXME: do something about this
-			}
-			log.Printf("Container %s... (%s): %s\n", id[0:8], hostname, "removed")
+		log.Debugf("Found item on inventory: %s - %s ", value.Key, string(value.Value))
+		containerID := path.Base(value.Key)
+		s.HostCache[containerID] = path.Base(path.Dir(value.Key))
+		if _, ok := set[containerID]; !ok {
+			log.Debugf("Container %s in on inventory but not on host: removing", containerID)
+			s.deleteContainer(&docker.APIEvents{ID: containerID, Status: "deleted-when-absent"}, false)
 		}
 	}
 	for _, c := range containers {
-		s.addContainer(&docker.APIEvents{ID: c.ID, Status: "existing"})
+		s.addContainer(&docker.APIEvents{ID: c.ID, Status: "found-running"})
 	}
 }

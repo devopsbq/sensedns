@@ -2,8 +2,9 @@
 
 Multihost DNS for docker networks
 
-
 // TODO
+- Improve readme
 
-- Print network when event occurs
-- Log level and use Logrus
+// THINK
+
+- Remove host network and other networks from sensedns resolution

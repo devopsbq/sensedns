@@ -1,10 +1,6 @@
 package main
 
-import (
-	"log"
-
-	"github.com/miekg/dns"
-)
+import "github.com/miekg/dns"
 
 func (s *Server) recurse(w dns.ResponseWriter, req *dns.Msg) {
 	if s.recurseTo == "" {
@@ -21,7 +17,7 @@ func (s *Server) recurse(w dns.ResponseWriter, req *dns.Msg) {
 		w.WriteMsg(in)
 		return
 	}
-	log.Printf("Recursive error: %+v\n", err)
+	log.Warnf("Recursive error: %+v\n", err)
 	dns.HandleFailed(w, req)
 }
 
@@ -43,10 +39,13 @@ func (s *Server) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 	m.SetReply(req)
 
 	var answerKnown bool
-	for _, r := range (*zone)[dns.RR_Header{Name: req.Question[0].Name, Rrtype: req.Question[0].Qtype, Class: req.Question[0].Qclass}] {
+	dnsreq := dns.RR_Header{Name: req.Question[0].Name, Rrtype: req.Question[0].Qtype, Class: req.Question[0].Qclass}
+	for _, r := range (*zone)[dnsreq] {
 		m.Answer = append(m.Answer, r)
 		answerKnown = true
 	}
+	// TODO: more logs here
+	s.roundRobin(zone, dnsreq)
 
 	if !answerKnown && s.recurseTo != "" {
 		s.recurse(w, req)
