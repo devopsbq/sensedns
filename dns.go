@@ -127,7 +127,7 @@ func (s *SenseDNS) fillWithData(pairs api.KVPairs, network string) {
 }
 
 func (s *Server) roundRobin(zone *Zone, address dns.RR_Header) {
-	log.WithField("domain", address.Name).Debug("round-robin records")
+	//log.WithField("domain", address.Name).Debug("round-robin records")
 	hosts := (*zone)[address]
 	if len(hosts) > 1 {
 		for i := 0; i < len(hosts)-1; i++ {
