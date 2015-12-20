@@ -17,7 +17,7 @@ func (s *Server) recurse(w dns.ResponseWriter, req *dns.Msg) {
 		w.WriteMsg(in)
 		return
 	}
-	log.Warnf("Recursive error: %+v\n", err)
+	log.Warnf("Recursive error: %+v", err)
 	dns.HandleFailed(w, req)
 }
 
