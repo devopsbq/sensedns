@@ -42,7 +42,7 @@ func (s *SenseDNS) addContainer(event *docker.APIEvents) {
 	containerLogger.Info(event.Status)
 	var keys []string
 	for net, v := range container.NetworkSettings.Networks {
-		s.newHostWithNetwork(net)
+		s.newHostWithNetwork(net) // Que haya fallado lo de 1)) inplica que el hostname o la net no se han recuperado bien
 		key := path.Join(storePath, net, hostname, containerID)
 		pair := &api.KVPair{Key: key, Value: []byte(v.IPAddress)}
 		containerLogger.WithField(networkField, net).Debugf("Inserting network key: %s -> %s", key, v.IPAddress)
@@ -67,12 +67,13 @@ func (s *SenseDNS) deleteContainer(event *docker.APIEvents, fromSocket bool) {
 	containerLogger.Info(event.Status)
 	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
 	pair, _, err := s.consulKV.Get(inventoryKey, nil)
+	containerLogger.Debugf("Getting inventory key: %s -> %v", inventoryKey, pair)
 	if err != nil {
 		log.Warnf("Error deleting inventory key from consul: %s", err)
 		return
 	}
 	var networkKeys []string
-	json.Unmarshal(pair.Value, &networkKeys) // TODO: this "panicked" on some situation!!!
+	json.Unmarshal(pair.Value, &networkKeys) // TODO: this "panicked" on some situation!!! (pair = niL!)  1))
 	if _, err := s.consulKV.Delete(inventoryKey, nil); err != nil {
 		log.Warnf("Error deleting inventory key on consul: %s", err)
 	}
@@ -83,7 +84,7 @@ func (s *SenseDNS) deleteContainer(event *docker.APIEvents, fromSocket bool) {
 		}
 		if fromSocket {
 			net := path.Base(path.Dir(path.Dir(networkKey)))
-			s.removedHostWithNetwork(net)
+			s.removedHostWithNetwork(net) // TODO: could avoid the problem changing this order
 		}
 	}
 }
@@ -119,6 +120,10 @@ func (s *SenseDNS) removedHostWithNetwork(net string) {
 }
 
 func (s *SenseDNS) addNetwork(net string) {
+	//TODO: FIX!! IMPORTANTE!!!
+	//Es posible que haya más de uno haciendo watch a la misma red si:
+	// Se levanta un contenedor en "prueba"
+	// Se para el contenedor de "prueba" (el watch sigue activo)!!!
 	networkLogger := log.WithField(networkField, net)
 	networkLogger.Info("start watching for changes")
 	index := uint64(0)
