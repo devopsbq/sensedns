@@ -39,15 +39,19 @@ func (s *SenseDNS) addContainer(event *docker.APIEvents) {
 	containerID, hostname := event.ID, container.Config.Hostname
 	s.HostCache[containerID] = hostname
 	containerLogger := log.WithFields(logrus.Fields{containerField: containerID[0:8], hostnameField: hostname})
-	containerLogger.Info(event.Status)
+	if hostname == "" {
+		containerLogger.Warnf("couldn't get hostname. Event: %s", event.Status)
+	} else {
+		containerLogger.Info(event.Status)
+	}
 	var keys []string
 	for net, v := range container.NetworkSettings.Networks {
 		s.newHostWithNetwork(net)
 		key := path.Join(storePath, net, hostname, containerID)
 		pair := &api.KVPair{Key: key, Value: []byte(v.IPAddress)}
-		containerLogger.WithField(networkField, net).Debugf("Inserting network key: %s -> %s", key, v.IPAddress)
+		containerLogger.WithField(networkField, net).Debugf("inserting network key: %s -> %s", key, v.IPAddress)
 		if _, err := s.consulKV.Put(pair, nil); err != nil {
-			containerLogger.WithField(networkField, net).Warnf("Error inserting network key on consul: %s", err)
+			containerLogger.WithField(networkField, net).Warnf("error inserting network key on consul: %s", err)
 			continue
 		}
 		keys = append(keys, key)
@@ -55,9 +59,9 @@ func (s *SenseDNS) addContainer(event *docker.APIEvents) {
 	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
 	keyBytes, _ := json.Marshal(keys)
 	inventoryPair := &api.KVPair{Key: inventoryKey, Value: keyBytes}
-	containerLogger.Debugf("Inserting inventory key: %s -> %s", inventoryKey, string(keyBytes))
+	containerLogger.Debugf("inserting inventory key: %s -> %s", inventoryKey, string(keyBytes))
 	if _, err := s.consulKV.Put(inventoryPair, nil); err != nil {
-		containerLogger.Warnf("Error inserting inventory key on consul: %s", err)
+		containerLogger.Warnf("error inserting inventory key on consul: %s", err)
 	}
 }
 
@@ -67,38 +71,47 @@ func (s *SenseDNS) deleteContainer(event *docker.APIEvents, fromSocket bool) {
 	containerLogger.Info(event.Status)
 	inventoryKey := path.Join(inventoryPath, s.NodeID, containerID)
 	pair, _, err := s.consulKV.Get(inventoryKey, nil)
+	if pair == nil {
+		containerLogger.Warnf("getting inventory key: %s (value is nil!)", inventoryKey)
+	} else {
+		containerLogger.Debugf("getting inventory key: %s %s", inventoryKey, string(pair.Value))
+	}
 	if err != nil {
-		log.Warnf("Error deleting inventory key from consul: %s", err)
+		log.Warnf("error deleting inventory key from consul: %s", err)
 		return
 	}
 	var networkKeys []string
-	json.Unmarshal(pair.Value, &networkKeys) // TODO: this "panicked" on some situation!!!
-	if _, err := s.consulKV.Delete(inventoryKey, nil); err != nil {
-		log.Warnf("Error deleting inventory key on consul: %s", err)
-	}
+	json.Unmarshal(pair.Value, &networkKeys) // TODO: this "panicked" on some situation!!! (pair == niL!)  1))
 	for _, networkKey := range networkKeys {
+		net := path.Base(path.Dir(path.Dir(networkKey)))
+		containerLogger.WithField(networkField, net).Debugf("deleting network key: %s", networkKey)
 		if _, err := s.consulKV.Delete(networkKey, nil); err != nil {
-			log.Warnf("Error deleting network key on consul: %s", err)
+			log.Warnf("error deleting network key on consul: %s", err)
 			continue
 		}
 		if fromSocket {
-			net := path.Base(path.Dir(path.Dir(networkKey)))
 			s.removedHostWithNetwork(net)
 		}
+	}
+	containerLogger.Debugf("deleting inventory key: %s ", inventoryKey)
+	if _, err := s.consulKV.Delete(inventoryKey, nil); err != nil {
+		log.Warnf("error deleting inventory key on consul: %s", err)
 	}
 }
 
 func (s *SenseDNS) newHostWithNetwork(net string) {
 	networkLogger := log.WithField(networkField, net)
 	networkLogger.Debug("new host")
-	if _, ok := s.KnownNets[net]; !ok {
+	if v, ok := s.KnownNets[net]; v == 0 {
 		networkLogger.Info("first local host, added network")
 		s.KnownNets[net] = 0
 		info, _ := s.dockerClient.NetworkInfo(net)
 		switch info.Driver {
 		case "host", "null", "bridge":
 		default:
-			go s.addNetwork(net)
+			if !ok {
+				go s.addNetwork(net)
+			}
 		}
 	}
 	s.KnownNets[net]++
@@ -112,7 +125,6 @@ func (s *SenseDNS) removedHostWithNetwork(net string) {
 		s.KnownNets[net]--
 		networkLogger.WithField(countField, s.KnownNets[net]).Debug("number of local hosts changed")
 		if v := s.KnownNets[net]; v == 0 {
-			delete(s.KnownNets, net)
 			networkLogger.Info("no local hosts, forgot network")
 		}
 	}
@@ -131,16 +143,17 @@ func (s *SenseDNS) addNetwork(net string) {
 			time.Sleep(2 * time.Second) // TODO: think about backoff
 			continue
 		}
+		if v := s.KnownNets[net]; v == 0 {
+			networkLogger.Infof("no local hosts, stop watching")
+			delete(s.KnownNets, net)
+			return
+		}
 		if meta.RequestTime > s.consulTimeout {
 			networkLogger.Debug("step watching, timeout reached")
 			continue
 		}
 		networkLogger.Infof("changes detected, proceding to update")
 		s.fillWithData(pairs, net)
-		if _, ok := s.KnownNets[net]; !ok {
-			networkLogger.Infof("no local hosts, stop watching")
-			return
-		}
 		index = meta.LastIndex
 	}
 }

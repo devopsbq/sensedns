@@ -14,7 +14,6 @@ import (
 const (
 	storePath     = "sensedns/network"
 	inventoryPath = "sensedns/inventory"
-	version       = "v0.1.3"
 )
 
 var log = logrus.New()
