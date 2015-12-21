@@ -34,6 +34,13 @@ type SenseDNS struct {
 	dnsServer     *Server
 }
 
+func (s *SenseDNS) cacheInfo(event *docker.APIEvents) {
+	container, _ := s.dockerClient.InspectContainer(event.ID)
+	containerID, hostname := event.ID, container.Config.Hostname
+	s.HostCache[containerID] = hostname
+	log.WithFields(logrus.Fields{containerField: containerID[0:8], hostnameField: hostname}).Info(event.Status)
+}
+
 func (s *SenseDNS) addContainer(event *docker.APIEvents) {
 	container, _ := s.dockerClient.InspectContainer(event.ID)
 	containerID, hostname := event.ID, container.Config.Hostname
@@ -73,9 +80,9 @@ func (s *SenseDNS) deleteContainer(event *docker.APIEvents, fromSocket bool) {
 	pair, _, err := s.consulKV.Get(inventoryKey, nil)
 	if pair == nil {
 		containerLogger.Warnf("getting inventory key: %s (value is nil!)", inventoryKey)
-	} else {
-		containerLogger.Debugf("getting inventory key: %s %s", inventoryKey, string(pair.Value))
+		return
 	}
+	containerLogger.Debugf("getting inventory key: %s %s", inventoryKey, string(pair.Value))
 	if err != nil {
 		log.Warnf("error deleting inventory key from consul: %s", err)
 		return
