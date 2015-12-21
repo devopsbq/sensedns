@@ -88,6 +88,8 @@ func main() {
 	sense.boot()
 	for e := range events {
 		switch e.Status {
+		case "create":
+			sense.cacheInfo(e)
 		case "start", "unpause":
 			sense.addContainer(e)
 		case "die", "pause":
