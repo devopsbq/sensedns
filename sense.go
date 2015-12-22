@@ -153,6 +153,7 @@ func (s *SenseDNS) addNetwork(net string) {
 		if v := s.KnownNets[net]; v == 0 {
 			networkLogger.Infof("no local hosts, stop watching")
 			delete(s.KnownNets, net)
+			s.dnsServer.removeNetworkData(net)
 			return
 		}
 		if meta.RequestTime > s.consulTimeout {
