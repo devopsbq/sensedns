@@ -105,11 +105,20 @@ func (s *Server) start(ds *dns.Server) {
 	}
 }
 
+func (s *Server) getNetDomain(network string) string {
+	return dns.Fqdn(fmt.Sprintf("%s.%s.", network, s.networkTLD))
+}
+
+func (s *Server) removeNetworkData(network string) {
+	key := s.getNetDomain(network)
+	delete(s.zones.store, key)
+}
+
 func (s *SenseDNS) fillWithData(pairs api.KVPairs, network string) {
 	zs := s.dnsServer.zones
 	zs.Lock()
 	defer zs.Unlock()
-	key := dns.Fqdn(fmt.Sprintf("%s.%s.", network, s.dnsServer.networkTLD))
+	key := s.dnsServer.getNetDomain(network)
 	zs.store[key] = make(map[dns.RR_Header][]dns.RR)
 	for _, value := range pairs {
 		path := strings.Split(value.Key, "/")
