@@ -21,7 +21,7 @@ func (s *Server) recurse(w dns.ResponseWriter, req *dns.Msg) {
 	dns.HandleFailed(w, req)
 }
 
-func (s *Server) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
+func (s *Server) do(w dns.ResponseWriter, req *dns.Msg) {
 	if len(req.Question) != 1 {
 		dns.HandleFailed(w, req)
 		return
@@ -66,12 +66,4 @@ func (s *Server) do(Net string, w dns.ResponseWriter, req *dns.Msg) {
 
 	m.Authoritative = true
 	w.WriteMsg(m)
-}
-
-func (s *Server) DoTCP(w dns.ResponseWriter, req *dns.Msg) {
-	s.do("tcp", w, req)
-}
-
-func (s *Server) DoUDP(w dns.ResponseWriter, req *dns.Msg) {
-	s.do("udp", w, req)
 }

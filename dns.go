@@ -77,18 +77,16 @@ func (s *Server) Addr() string {
 }
 
 func (s *Server) Run() {
-	tcpHandler := dns.NewServeMux()
-	tcpHandler.HandleFunc(".", s.DoTCP)
-	udpHandler := dns.NewServeMux()
-	udpHandler.HandleFunc(".", s.DoUDP)
+	handler := dns.NewServeMux()
+	handler.HandleFunc(".", s.do)
 
 	tcpServer := &dns.Server{Addr: s.Addr(),
-		Net: "tcp", Handler: tcpHandler,
+		Net: "tcp", Handler: handler,
 		ReadTimeout: s.rTimeout, WriteTimeout: s.wTimeout,
 	}
 
 	udpServer := &dns.Server{Addr: s.Addr(),
-		Net: "udp", Handler: udpHandler,
+		Net: "udp", Handler: handler,
 		UDPSize:     65535,
 		ReadTimeout: s.rTimeout, WriteTimeout: s.wTimeout,
 	}
@@ -98,9 +96,8 @@ func (s *Server) Run() {
 }
 
 func (s *Server) start(ds *dns.Server) {
-	log.Infof("Start %s listener on %s", ds.Net, s.Addr())
-	err := ds.ListenAndServe()
-	if err != nil {
+	log.Infof("Starting %s listener on %s", ds.Net, s.Addr())
+	if err := ds.ListenAndServe(); err != nil {
 		log.Fatalf("Start %s listener on %s failed: %s", ds.Net, s.Addr(), err.Error())
 	}
 }
