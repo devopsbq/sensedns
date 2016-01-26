@@ -50,6 +50,9 @@ Container addresses of the network can be resolved and reached by any other cont
 - '-r' REDIRECT_DNS to set a DNS to forward requests that can't be resolved By default is"8.8.8.8:53"
 - '-n' NETWORK_TLD to set the top-level domain. By default is sensedns
 
+### DEMO
+
+[![asciicast](https://asciinema.org/a/96wmmiw7mzpvgxokaoo1p96ko.png)](https://asciinema.org/a/96wmmiw7mzpvgxokaoo1p96ko)
 
 #### TO-DO
 - Design interface to allow etcd and others
