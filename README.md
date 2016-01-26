@@ -22,8 +22,9 @@ docker network create -d overlay testnetwork
 Then, if we launch a container on that network.
 
 ```
-docker run -d -h redis --net testnetwork --dns <DNS_IP> --dns-search testnetwork.docker -redis
+docker run -d -h redis --net testnetwork --dns <DNS_IP> --dns-search testnetwork.docker redis
 ```
+
 In this example we do the next:
 - '-h' to specify a hostname for the container, this hostname will be used for DNS resolution.
 - '--net' to specify the network of the container.
@@ -32,7 +33,7 @@ In this example we do the next:
 
 Container addresses of the network can be resolved and reached by any other container on the same network.
 
-### FEATURES
+### Features
 - Round-robin for requests
 - Fault tolerant. If one SenseDNS of the cluster fails, when it recovers will update its information.
 - Distributed DNS solution.
@@ -42,7 +43,7 @@ Container addresses of the network can be resolved and reached by any other cont
 - Can be run as a binary or as a docker container: `docker run -d devopsbq/sensedns -v /var/run/docker.sock:/var/run/docker.sock`.
 - Ready for production!
 
-### OPTIONS
+### Options
 - '-c' or CONSUL_URL environment variable to set the consul url. By deafult is "127.0.0.1:8500"
 - '-l' or LOG_LEVEL to set the level of log. By default is "INFO"
 - '-a' DNS_LISTEN_ADDRESS to set the address where to listen. By default is "0.0.0.0"
@@ -50,7 +51,7 @@ Container addresses of the network can be resolved and reached by any other cont
 - '-r' REDIRECT_DNS to set a DNS to forward requests that can't be resolved By default is"8.8.8.8:53"
 - '-n' NETWORK_TLD to set the top-level domain. By default is sensedns
 
-### DEMO
+### Demo
 
 [![asciicast](https://asciinema.org/a/96wmmiw7mzpvgxokaoo1p96ko.png)](https://asciinema.org/a/96wmmiw7mzpvgxokaoo1p96ko)
 
@@ -61,5 +62,8 @@ Container addresses of the network can be resolved and reached by any other cont
 - Implement a method to remove other dns data if can't be reached
 - Refactor and improve DNS
 
-#### THINK
+#### Think
 - Use file to store things if consul can't be reached?
+
+
+This is a work in progress, it may contain some little bugs. Beside this, we have this running on our cluster without any problem to the date.
