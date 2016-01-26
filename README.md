@@ -12,7 +12,7 @@ To allow multihost networks on docker make sure to follow [docker overlay networ
 git clone https://github.com/devopsbq/sensedns.git
 cd sensedns
 go build
-./sensedns -c "YOUR_CONSUL_URL -n docker"
+./sensedns -c <YOUR_CONSUL_URL> -n docker
 ```
 This will launch SenseDNS on the host, at port 53 (another por may be specified with -p option). Next we create a network.
 ```
@@ -22,7 +22,7 @@ docker network create -d overlay testnetwork
 Then, if we launch a container on that network.
 
 ```
-docker run -d -h redis --net testnetwork --dns SENSE_DNS_IP[:PORT] --dns-search testnetwork.docker -redis
+docker run -d -h redis --net testnetwork --dns <DNS_IP> --dns-search testnetwork.docker -redis
 ```
 In this example we do the next:
 - '-h' to specify a hostname for the container, this hostname will be used for DNS resolution.
