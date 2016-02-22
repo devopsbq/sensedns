@@ -23,7 +23,7 @@ type cache struct {
 	tam   int
 }
 
-// SenseDNS is the proccess which manages containers
+// SenseDNS is the process which manages containers
 type SenseDNS struct {
 	NodeID        string
 	KnownNets     map[string]int
