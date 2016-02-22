@@ -18,11 +18,6 @@ const (
 	indexField     = "index"
 )
 
-type cache struct {
-	hosts map[string]string
-	tam   int
-}
-
 // SenseDNS is the process which manages containers
 type SenseDNS struct {
 	NodeID        string
