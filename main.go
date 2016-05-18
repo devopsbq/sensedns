@@ -31,7 +31,7 @@ func getNodeID(client *docker.Client) string {
 	if err != nil {
 		log.Fatalln("Can't get node ID")
 	}
-	return fmt.Sprintf("%s-%s", info.Get("ClusterAdvertise"), info.Get("Name"))
+	return fmt.Sprintf("%s-%s", info.ClusterAdvertise, info.Name)
 }
 
 func main() {

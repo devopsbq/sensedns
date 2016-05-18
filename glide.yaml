@@ -1,0 +1,8 @@
+package: github.com/devopsbq/sensedns
+import:
+- package: github.com/Sirupsen/logrus
+- package: github.com/fsouza/go-dockerclient
+- package: github.com/hashicorp/consul
+  subpackages:
+  - api
+- package: github.com/miekg/dns
